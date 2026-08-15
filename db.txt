@@ -1,0 +1,17 @@
+# commander_slug	card_name	image_file	date_added
+hakbal-of-the-surging-soul	Namor, Scourge of the Seas	namor-scourge-of-the-seas.jpg	2026-07-28
+hakbal-of-the-surging-soul	Daughter of the Deep	daughter-of-the-deep.jpg	2026-07-28
+hakbal-of-the-surging-soul	Attuma, Atlantean Warlord	attuma-atlantean-warlord.jpg	2026-07-28
+hakbal-of-the-surging-soul	Namor the Sub-Mariner	namor-the-sub-mariner.jpg	2026-07-28
+hakbal-of-the-surging-soul	Atlantean Cavalry	atlantean-cavalry.jpg	2026-07-28
+edgar-markov	Dark Fortress	dark-fortress.jpg	2026-07-28
+edgar-markov	Bloodline Recollector	bloodline-recollector.jpg	2026-07-28
+edgar-markov	Orcrist, Goblin-cleaver	orcrist-goblin-cleaver.jpg	2026-07-28
+edgar-markov	Hell's Kitchen	hells-kitchen.jpg	2026-07-28
+edgar-markov	Fisk Tower	fisk-tower.jpg	2026-07-28
+edgar-markov	Gleaming Splendor	gleaming-splendor.jpg	2026-08-15
+ghyrson-starn-kelermorph	Gandalf, Goblins' Bane	gandalf-goblins-bane.jpg	2026-08-15
+ghyrson-starn-kelermorph	Hawkeye's Bow	hawkeyes-bow.jpg	2026-08-15
+ghyrson-starn-kelermorph	Wizard's Staff	wizards-staff.jpg	2026-08-15
+ghyrson-starn-kelermorph	Mjölnir, Hammer of Thor	mjölnir-hammer-of-thor.jpg	2026-08-15
+ghyrson-starn-kelermorph	Hawkeye, Avenging Archer	hawkeye-avenging-archer.jpg	2026-08-15

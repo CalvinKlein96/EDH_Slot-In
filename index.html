@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New Cards — EDHREC Watcher</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#16141d; --surface:#1e1b27; --surface-2:#262130; --line:#322c40;
+    --text:#e9e6f0; --muted:#9990ac; --gold:#d8a24a; --gold-soft:rgba(216,162,74,.14);
+    --danger:#e0736b; --radius:12px;
+    --serif:"Cormorant Garamond",Georgia,"Times New Roman",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--sans);
+    -webkit-font-smoothing:antialiased; line-height:1.4;
+  }
+  a{color:inherit}
+
+  /* ---- top bar ---- */
+  .bar{
+    position:sticky; top:0; z-index:10;
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    padding:14px 20px; background:rgba(22,20,29,.82);
+    backdrop-filter:blur(10px); border-bottom:1px solid var(--line);
+  }
+  .brand{display:flex; align-items:baseline; gap:10px; margin-right:auto}
+  .brand h1{font-family:var(--serif); font-weight:700; font-size:26px; margin:0; letter-spacing:.3px}
+  .brand .pip{width:11px; height:11px; border-radius:50%; background:var(--gold);
+    box-shadow:0 0 12px var(--gold); transform:translateY(-2px)}
+  .stamp{font-size:12px; color:var(--muted)}
+
+  .toggle{display:inline-flex; border:1px solid var(--line); border-radius:999px; overflow:hidden}
+  .toggle button{
+    background:transparent; color:var(--muted); border:0; cursor:pointer;
+    font:inherit; font-size:13px; padding:7px 16px;
+  }
+  .toggle button[aria-pressed="true"]{background:var(--surface-2); color:var(--text)}
+
+  .check{
+    display:inline-flex; align-items:center; gap:8px; cursor:pointer;
+    background:var(--gold); color:#241a06; border:0; border-radius:999px;
+    font:inherit; font-weight:600; font-size:13px; padding:8px 18px;
+  }
+  .check:hover{filter:brightness(1.06)}
+  .check:disabled{opacity:.55; cursor:default}
+  .spin{width:14px; height:14px; border-radius:50%;
+    border:2px solid rgba(36,26,6,.35); border-top-color:#241a06;
+    animation:spin .7s linear infinite; display:none}
+  .check.busy .spin{display:inline-block}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ---- content ---- */
+  main{max-width:1400px; margin:0 auto; padding:26px 20px 60px}
+  .page-empty{color:var(--muted); text-align:center; padding:80px 20px; font-size:15px}
+
+  .commander{margin:0 0 40px}
+  .commander > header{display:flex; align-items:baseline; gap:12px; margin-bottom:6px}
+  .commander h2{font-family:var(--serif); font-weight:600; font-size:30px; margin:0; letter-spacing:.2px}
+  .count{font-size:12px; color:var(--gold); border:1px solid var(--gold-soft);
+    background:var(--gold-soft); border-radius:999px; padding:2px 10px}
+  .tag{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.7px}
+  .rule{height:1px; border:0; margin:0 0 18px;
+    background:linear-gradient(90deg,var(--gold),var(--line) 40%,transparent)}
+  .note{color:var(--muted); font-size:14px; padding:6px 0 4px}
+  .note.err{color:var(--danger)}
+
+  .grid{display:grid; gap:14px;
+    grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  @media (max-width:520px){.grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}}
+
+  .card{display:flex; flex-direction:column; gap:6px}
+  .art{position:relative; aspect-ratio:488/680; border-radius:var(--radius); overflow:hidden;
+    background:var(--surface); border:1px solid var(--line)}
+  .art img{width:100%; height:100%; object-fit:cover; display:block}
+  .card.is-new .art{border-color:var(--gold); box-shadow:0 0 0 1px var(--gold),0 0 18px -6px var(--gold)}
+  .badge{position:absolute; top:8px; left:8px; font-size:10px; font-weight:700;
+    letter-spacing:.5px; color:#241a06; background:var(--gold);
+    border-radius:6px; padding:2px 7px; text-transform:uppercase}
+  .placeholder{width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+    text-align:center; padding:10px; color:var(--muted); font-size:12px}
+  .cname{font-size:12.5px; color:#c9c3d6; text-align:center; padding:0 2px}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <div class="brand"><span class="pip"></span><h1>New Cards</h1></div>
+    <span class="stamp" id="stamp"></span>
+    <div class="toggle" role="group" aria-label="View">
+      <button id="tab-new" aria-pressed="true">New</button>
+      <button id="tab-all" aria-pressed="false">All</button>
+    </div>
+    <button class="check" id="check"><span class="spin"></span><span id="check-label">Check for new cards</span></button>
+  </div>
+
+  <main id="main"><div class="page-empty">Loading…</div></main>
+
+<script>
+const main = document.getElementById('main');
+const checkBtn = document.getElementById('check');
+const checkLabel = document.getElementById('check-label');
+const stamp = document.getElementById('stamp');
+const tabNew = document.getElementById('tab-new');
+const tabAll = document.getElementById('tab-all');
+let mode = 'new';
+
+function setMode(m){
+  mode = m;
+  tabNew.setAttribute('aria-pressed', m === 'new');
+  tabAll.setAttribute('aria-pressed', m === 'all');
+  load();
+}
+tabNew.onclick = () => setMode('new');
+tabAll.onclick = () => setMode('all');
+
+function fmtStamp(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  return 'Last checked ' + d.toLocaleString([], {month:'short', day:'numeric',
+    hour:'2-digit', minute:'2-digit'});
+}
+
+function cardTile(c){
+  const el = document.createElement('div');
+  el.className = 'card' + (c.new ? ' is-new' : '');
+  const art = document.createElement('div');
+  art.className = 'art';
+  if(c.img){
+    const img = document.createElement('img');
+    img.loading = 'lazy'; img.src = c.img; img.alt = c.name;
+    art.appendChild(img);
+  } else {
+    const ph = document.createElement('div');
+    ph.className = 'placeholder';
+    ph.textContent = c.name + ' — no image';
+    art.appendChild(ph);
+  }
+  if(c.new){
+    const b = document.createElement('span');
+    b.className = 'badge'; b.textContent = 'New';
+    art.appendChild(b);
+  }
+  const name = document.createElement('div');
+  name.className = 'cname'; name.textContent = c.name;
+  el.append(art, name);
+  return el;
+}
+
+function commanderSection(cm){
+  const sec = document.createElement('section');
+  sec.className = 'commander';
+
+  const header = document.createElement('header');
+  const h2 = document.createElement('h2'); h2.textContent = cm.name;
+  header.appendChild(h2);
+  if(cm.cards.length){
+    const count = document.createElement('span');
+    count.className = 'count';
+    count.textContent = cm.cards.length + (cm.cards.length === 1 ? ' card' : ' cards');
+    header.appendChild(count);
+  }
+  if(cm.baseline){
+    const tag = document.createElement('span');
+    tag.className = 'tag'; tag.textContent = 'initial set';
+    header.appendChild(tag);
+  }
+  sec.appendChild(header);
+  sec.insertAdjacentHTML('beforeend', '<hr class="rule">');
+
+  if(cm.error){
+    const n = document.createElement('div');
+    n.className = 'note err';
+    n.textContent = "Couldn't reach EDHREC — " + cm.error;
+    sec.appendChild(n);
+  } else if(!cm.cards.length){
+    const n = document.createElement('div');
+    n.className = 'note';
+    if(mode === 'all') n.textContent = 'Nothing downloaded yet.';
+    else if(!cm.checked) n.textContent = 'Not checked yet — hit Check for new cards.';
+    else n.textContent = "You're caught up — no new cards.";
+    sec.appendChild(n);
+  } else {
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    cm.cards.forEach(c => grid.appendChild(cardTile(c)));
+    sec.appendChild(grid);
+  }
+  return sec;
+}
+
+function render(data){
+  stamp.textContent = mode === 'new' ? fmtStamp(data.last_checked) : '';
+  main.replaceChildren();
+  if(!data.commanders.length){
+    main.innerHTML = '<div class="page-empty">No commanders in commanders.txt yet. '
+      + 'Add one per line, then hit Check for new cards.</div>';
+    return;
+  }
+  data.commanders.forEach(cm => main.appendChild(commanderSection(cm)));
+}
+
+async function load(){
+  const res = await fetch('/api/data?mode=' + mode);
+  render(await res.json());
+}
+
+async function runCheck(){
+  checkBtn.disabled = true; checkBtn.classList.add('busy');
+  checkLabel.textContent = 'Scanning EDHREC…';
+  try{
+    const res = await fetch('/api/check', {method:'POST'});
+    const data = await res.json();
+    setMode('new');           // show what the check just found
+    render(data);
+  } catch(e){
+    checkLabel.textContent = 'Check failed — retry';
+  } finally {
+    checkBtn.disabled = false; checkBtn.classList.remove('busy');
+    if(checkLabel.textContent === 'Scanning EDHREC…')
+      checkLabel.textContent = 'Check for new cards';
+  }
+}
+checkBtn.onclick = runCheck;
+
+load();
+</script>
+</body>
+</html>
