@@ -1,11 +1,11 @@
 # EDH Slot-in
 
 <p align="center">
-  <img src="Icon/icon_1024.png" width="300">
+  <img src="Icon/icon_1024.png" width="200">
 </p>
 
 A small desktop/Android app that watches EDHREC's "New Cards" tab for a list
-of your Commander (EDH) decks and tells you when a new card would fit right in — with art, USD/EUR pricing, and direct TCGplayer/Cardmarket
+of your Commander (EDH) decks and tells you when a new card would slot right in — with art, USD/EUR pricing, and direct TCGplayer/Cardmarket
 links, all in one scrollable window.
 
 ## Features
