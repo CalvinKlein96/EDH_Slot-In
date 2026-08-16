@@ -21,7 +21,7 @@ links, all in one scrollable window.
   calendar picker in Settings.
 - Backup/restore your whole tracked state (commander list, database, cached
   images) to a single zip.
-- Light/dark theme, following Material 3.
+- Light/dark theme
 
 ## Running it
 
