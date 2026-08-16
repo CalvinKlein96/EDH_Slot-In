@@ -1,3 +1,0 @@
-flet>=0.80
-requests
-pyedhrec

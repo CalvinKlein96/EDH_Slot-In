@@ -1,0 +1,10 @@
+# Build output (regenerate with `flet build apk`)
+/build/
+
+# Local caches
+__pycache__/
+*.pyc
+.flet/
+
+# IDE
+.idea/
