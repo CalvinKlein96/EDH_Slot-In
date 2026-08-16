@@ -845,6 +845,55 @@ async def main(page: ft.Page):
     async def open_url(url: str):
         await url_launcher.launch_url(url)
 
+    # ---- delete cards older than a chosen date ----------------------------- #
+    prune_confirm_text = ft.Text(color=TEXT)
+    prune_confirm_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Delete old cards?", color=TEXT),
+        content=prune_confirm_text,
+        bgcolor=ft.Colors.with_opacity(0.92, PANEL),
+        shape=glass_shape(),
+        actions=[
+            ft.TextButton("Cancel", on_click=lambda e: page.pop_dialog()),
+            ft.TextButton("Delete", style=ft.ButtonStyle(color=ACCENT),
+                         on_click=lambda e: confirm_prune()),
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
+
+    def confirm_prune():
+        page.pop_dialog()
+        cutoff = prune_confirm_dialog.data
+        rows_deleted, images_deleted = ew.delete_cards_before(cutoff, commanders)
+        _bytes_cache.clear()                                  # images may have changed
+        render()
+        set_status(f"Deleted {rows_deleted} card(s) and {images_deleted} image(s) "
+                  f"recorded before {cutoff}.")
+
+    def on_prune_date_change(e):
+        picked = date_picker.value
+        if picked is None:
+            return
+        cutoff = picked.isoformat() if hasattr(picked, "isoformat") else str(picked)
+        prune_confirm_dialog.data = cutoff
+        prune_confirm_text.value = (
+            f"Remove every tracked card first recorded before {cutoff}, "
+            f"including their downloaded images? Commanders and their portraits "
+            f"are kept. This can't be undone."
+        )
+        page.show_dialog(prune_confirm_dialog)
+
+    date_picker = ft.DatePicker(
+        first_date=date(2000, 1, 1),
+        last_date=date.today(),
+        current_date=date.today(),
+        on_change=on_prune_date_change,
+    )
+
+    def open_prune_picker(_=None):
+        page.pop_dialog()          # close Settings first so dialogs don't stack
+        page.show_dialog(date_picker)
+
     def on_theme_toggle(e):
         is_dark = e.control.value
         page.theme_mode = ft.ThemeMode.DARK if is_dark else ft.ThemeMode.LIGHT
@@ -868,6 +917,9 @@ async def main(page: ft.Page):
                              on_click=do_backup),
                 ft.TextButton("Restore from backup", icon=ft.Icons.UPLOAD_FILE,
                              on_click=pick_restore_file),
+                ft.Divider(height=1, color=LINE),
+                ft.TextButton("Delete cards older than…", icon=ft.Icons.DELETE_SWEEP_OUTLINED,
+                             on_click=open_prune_picker),
             ],
             tight=True, spacing=12,
         ),

@@ -153,6 +153,42 @@ def append_db(entries: list[dict]) -> None:
             fh.write(f"{e['commander']}\t{e['card']}\t{e['image']}\t{e['date']}\n")
 
 
+def save_db(rows: list[dict]) -> None:
+    """Overwrite db.txt with exactly these rows. Unlike append_db (which only
+    ever adds), this is how a prune/delete persists what's left."""
+    lines = ["# commander_slug\tcard_name\timage_file\tdate_added"]
+    lines += [f"{r['commander']}\t{r['card']}\t{r['image']}\t{r['date']}" for r in rows]
+    DB_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def delete_cards_before(cutoff_date: str, commanders: list[str]) -> tuple[int, int]:
+    """Drop every DB row recorded before cutoff_date (an ISO date string,
+    exclusive) and delete any of their images no longer referenced by a
+    surviving row. Images are shared across commanders (and with a tracked
+    commander's own portrait, protected here via `commanders`), so a file is
+    only actually deleted once nothing left needs it. Rows with no date are
+    never touched. Returns (rows_deleted, images_deleted)."""
+    rows = load_db()
+    removed = [r for r in rows if r["date"] and r["date"] < cutoff_date]
+    if not removed:
+        return 0, 0
+    keep = [r for r in rows if not (r["date"] and r["date"] < cutoff_date)]
+
+    protected = {f"{slugify(name)}.jpg" for c in commanders for name in partner_names(c)}
+    still_used = {r["image"] for r in keep if r["image"]} | protected
+    removed_images = {r["image"] for r in removed if r["image"]}
+
+    images_deleted = 0
+    for image_file in removed_images - still_used:
+        path = IMG_DIR / image_file
+        if path.exists():
+            path.unlink()
+            images_deleted += 1
+
+    save_db(keep)
+    return len(removed), images_deleted
+
+
 # --------------------------------------------------------------------------- #
 # Commander name index (cached, powers the app's add-commander autocomplete)
 # --------------------------------------------------------------------------- #
