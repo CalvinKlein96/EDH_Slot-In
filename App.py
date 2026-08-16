@@ -22,6 +22,7 @@ requirements.txt, which `flet build` reads to decide what to bundle into
 the APK.
 """
 
+import asyncio
 import io
 import zipfile
 from datetime import date
@@ -235,6 +236,18 @@ def _img_bytes(path: Path) -> bytes:
     if key not in _bytes_cache:
         _bytes_cache[key] = path.read_bytes()
     return _bytes_cache[key]
+
+
+_APP_DIR = Path(__file__).resolve().parent
+
+
+def _asset_bytes(name: str) -> bytes:
+    """Load a file from assets/ as raw bytes rather than by asset-path
+    string. Per flet_cli's own build source, only the web/Pyodide build
+    wires assets/ up as a Flutter asset; native builds bundle it alongside
+    the Python app instead, and src="name.png" silently failed to render
+    on Android even though the identical build worked fine on desktop."""
+    return _img_bytes(_APP_DIR / "assets" / name)
 
 
 def tile_dims(tile_w: float) -> tuple[float, float]:
@@ -484,7 +497,6 @@ async def main(page: ft.Page):
     page.dark_theme = ft.Theme(color_scheme_seed=SEED, use_material3=True)
     page.theme_mode = (ft.ThemeMode.DARK if ew.load_theme_mode() == "dark"
                        else ft.ThemeMode.LIGHT)
-    page.bgcolor = SURFACE
     page.padding = 0                       # moved to a content wrapper so the
     page.scroll = ft.ScrollMode.AUTO       # background texture can go edge-to-edge
 
@@ -508,6 +520,8 @@ async def main(page: ft.Page):
         return True
 
     def on_page_resize(e: ft.PageResizeEvent):
+        apply_bg_size()
+        page.update()
         if update_layout():
             render()
 
@@ -847,10 +861,39 @@ async def main(page: ft.Page):
         page.pop_dialog()          # close Settings first so dialogs don't stack
         page.show_dialog(date_picker)
 
+    def apply_texture():
+        # A page-level Stack with a top/left/right/bottom=0 positioned
+        # Container doesn't work here: Flutter sizes a Stack to its largest
+        # *non*-positioned child, so with page.scroll active (unbounded
+        # height) the background only ever grew as tall as the actual
+        # content, leaving the screen uncovered below short content. Nor
+        # does page.decoration (confirmed by direct testing: it renders
+        # bgcolor but silently drops the image entirely). A plain Container
+        # with width/height pinned to the page's own size does work — but
+        # pinning height to exactly page.height also caps it there, breaking
+        # scrolling once there's more content than fits one screen. So the
+        # background instead tracks max(page height, content's own measured
+        # height) — see apply_bg_size()/on_content_size_change below.
+        name = "texture_dark.png" if page.theme_mode == ft.ThemeMode.DARK else "texture_light.png"
+        bg_texture.image = ft.DecorationImage(src=_asset_bytes(name), repeat=ft.ImageRepeat.REPEAT)
+
+    content_height = {"value": 0.0}
+
+    def apply_bg_size():
+        bg_texture.width = page.width
+        bg_texture.height = max(page.height or 0, content_height["value"])
+        content_wrap.width = page.width
+
+    def on_content_size_change(e: ft.LayoutSizeChangeEvent):
+        content_height["value"] = e.height
+        apply_bg_size()
+        page.update()
+
     def on_theme_toggle(e):
         is_dark = e.control.value
         page.theme_mode = ft.ThemeMode.DARK if is_dark else ft.ThemeMode.LIGHT
         ew.save_theme_mode("dark" if is_dark else "light")
+        apply_texture()
         page.update()
 
     theme_switch = ft.Switch(label="Dark mode",
@@ -885,7 +928,7 @@ async def main(page: ft.Page):
                           bgcolor=ft.Colors.with_opacity(0.75, ACCENT), color=ON_ACCENT,
                           style=glass_button_style(), on_click=run_check)
     title = ft.Row(
-        [ft.Image(src="icon.png", width=96, height=96, fit=ft.BoxFit.CONTAIN)],
+        [ft.Image(src=_asset_bytes("icon.png"), width=96, height=96, fit=ft.BoxFit.CONTAIN)],
         alignment=ft.MainAxisAlignment.CENTER,
     )
 
@@ -974,24 +1017,23 @@ async def main(page: ft.Page):
         style=glass_button_style(), on_click=open_add_dialog,
     )
 
-    page.add(
-        ft.Stack(
-            [
-                ft.Container(
-                    top=0, left=0, right=0, bottom=0,
-                    image=ft.DecorationImage(src="texture.png",
-                                            repeat=ft.ImageRepeat.REPEAT),
-                ),
-                ft.Container(
-                    padding=PAGE_PADDING,
-                    content=ft.Column(
-                        [title, add_commander_btn, toolbar_row, status,
-                         ft.Divider(height=20, color=LINE), body],
-                    ),
-                ),
-            ],
-        )
+    bg_texture = ft.Container(bgcolor=SURFACE)
+    content_wrap = ft.Container(
+        padding=ft.Padding(left=PAGE_PADDING, top=PAGE_PADDING + 24,
+                          right=PAGE_PADDING, bottom=PAGE_PADDING),
+        content=ft.Column(
+            [title, add_commander_btn, toolbar_row, status,
+             ft.Divider(height=20, color=LINE), body],
+        ),
+        on_size_change=on_content_size_change,
     )
+    # Both are non-positioned Stack children, so the Stack's own size (and
+    # hence what the page can scroll through) is the taller of the two —
+    # unlike top/left/right/bottom=0 positioning, which is measured against
+    # the Stack's size rather than contributing to it.
+    page.add(ft.Stack([bg_texture, content_wrap]))
+    apply_bg_size()
+    apply_texture()
     update_layout()
     render()
 
@@ -999,19 +1041,29 @@ async def main(page: ft.Page):
     # commander" autocomplete would otherwise stay empty until the user runs
     # a check — which itself needs a commander already added. Fetch it once
     # in the background so it's ready by the time they open that dialog.
-    def bootstrap_commander_index():
+    #
+    # This is scheduled as a task (not called inline) and given a moment to
+    # start: page.run_thread hands work off via page.session.connection.loop,
+    # and dispatching that from the tail of main() — before the client's
+    # initial connection has fully settled — is a plausible reason this can
+    # silently no-op on a real device even though the identical run_thread
+    # call in run_check() (only ever triggered later, from a button click)
+    # works fine.
+    async def bootstrap_commander_index():
         if commander_index:
             return
+        await asyncio.sleep(0.5)
         def fetch():
             try:
                 names = ew.fetch_commander_names(requests.Session())
                 ew.save_commander_index(names)
                 commander_index[:] = names
-            except Exception:
-                pass                                  # just retry next launch
+                set_status("Commander list ready for autocomplete.")
+            except Exception as exc:
+                set_status(f"Commander list fetch failed: {exc}")
         page.run_thread(fetch)
 
-    bootstrap_commander_index()
+    page.run_task(bootstrap_commander_index)
 
     # Weekly auto-check. There's no cross-platform way to run Python on a
     # schedule while the app isn't open (Android would need native WorkManager
