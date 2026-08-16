@@ -8,3 +8,17 @@ __pycache__/
 
 # IDE
 .idea/
+
+# Per-install runtime data: commander list, card database, cached prices,
+# downloaded card art, generated reports. Regenerated fresh on first run;
+# the card images in particular are Scryfall/Wizards of the Coast content
+# and shouldn't be redistributed via the repo.
+/commanders.txt
+/db.txt
+/card_meta.txt
+/commander_index.txt
+/dismissed.txt
+/last_check.txt
+/theme_mode.txt
+/img/
+/reports/
