@@ -1,3 +1,13 @@
+[tool.flet]
+# Display name shown in app launchers, window titles, and about dialogs.
+product = "EDH Slot-in"
+
+[tool.flet.android]
+# No separate icon_android.png — assets/icon.png (opaque, navy background)
+# is shared as both the legacy icon and the adaptive foreground layer, over
+# this matching backdrop color.
+adaptive_icon_background = "#202a5e"
+
 [tool.flet.app]
 # Local dev/test state and IDE/VCS metadata — not part of the shipped app.
 # Android uses its own per-app documents directory for real runtime data

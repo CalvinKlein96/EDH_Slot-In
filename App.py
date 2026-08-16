@@ -23,10 +23,7 @@ the APK.
 """
 
 import io
-import random
-import struct
 import zipfile
-import zlib
 from datetime import date
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -60,7 +57,7 @@ CHECK_INTERVAL_DAYS = 7                    # auto-run "Check for new cards" this
 # else here is a semantic role, not a literal color, so Flutter resolves it
 # against whichever theme is active and toggling page.theme_mode re-themes the
 # whole UI with no manual rebuild.
-SEED = "#19995D"
+SEED = "#194A99"
 ACCENT = ft.Colors.PRIMARY
 ON_ACCENT = ft.Colors.ON_PRIMARY
 SURFACE = ft.Colors.SURFACE
@@ -97,28 +94,6 @@ def glass_button_style(opacity: float = 0.35) -> ft.ButtonStyle:
     )
 
 _bytes_cache: dict[str, bytes] = {}
-
-
-def make_noise_texture(size: int = 96, alpha: int = 14) -> bytes:
-    """A tiny hand-encoded PNG of gray noise (no Pillow available), tiled at
-    low opacity behind the page for a mild grain texture."""
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        return (struct.pack(">I", len(data)) + tag + data
-                + struct.pack(">I", zlib.crc32(tag + data)))
-
-    header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)   # 8-bit RGBA
-    raw = bytearray()
-    for _ in range(size):
-        raw.append(0)                          # filter type: None
-        for _ in range(size):
-            gray = random.randint(0, 255)
-            raw += bytes((gray, gray, gray, alpha))
-    idat = zlib.compress(bytes(raw), 9)
-
-    return (b"\x89PNG\r\n\x1a\n"
-            + chunk(b"IHDR", header)
-            + chunk(b"IDAT", idat)
-            + chunk(b"IEND", b""))
 
 
 # Data directory + commander-file management (no CWD dependence)
@@ -501,7 +476,10 @@ async def main(page: ft.Page):
     data_dir = await _resolve_data_dir(page)
     _init_paths(data_dir)                  # must run before any ew.load_*() below
 
-    page.title = "EDHREC — New Cards"
+    page.title = "EDH Slot-in"
+    # Desktop title-bar/taskbar icon (Windows only). The Android/other builds
+    # get their icon from assets/icon.png instead, via flutter_launcher_icons.
+    page.window.icon = "icon.ico"
     page.theme = ft.Theme(color_scheme_seed=SEED, use_material3=True)
     page.dark_theme = ft.Theme(color_scheme_seed=SEED, use_material3=True)
     page.theme_mode = (ft.ThemeMode.DARK if ew.load_theme_mode() == "dark"
@@ -685,7 +663,7 @@ async def main(page: ft.Page):
 
         for commander in list(commanders):
             cslug = ew.slugify(commander)
-            set_status(f"Checking {commander}…")
+            set_status("Checking for great additions…")
 
             # The commander's own tile is clickable/zoomable like any other
             # card, so make sure its art is cached too, one image per name
@@ -906,12 +884,14 @@ async def main(page: ft.Page):
     check_btn = ft.Button("Check for new cards", icon=ft.Icons.REFRESH,
                           bgcolor=ft.Colors.with_opacity(0.75, ACCENT), color=ON_ACCENT,
                           style=glass_button_style(), on_click=run_check)
-    title = ft.Text("EDHREC New-Card Watcher", size=24,
-                    weight=ft.FontWeight.BOLD, color=TEXT)
+    title = ft.Row(
+        [ft.Image(src="icon.png", width=96, height=96, fit=ft.BoxFit.CONTAIN)],
+        alignment=ft.MainAxisAlignment.CENTER,
+    )
 
     toolbar_row = ft.Row(
         [
-            ft.Row([progress, check_btn], spacing=8),
+            ft.Row([check_btn, progress], spacing=8),
             ft.IconButton(icon=ft.Icons.SETTINGS_OUTLINED, icon_color=MUTED,
                          tooltip="Settings",
                          on_click=lambda e: page.show_dialog(settings_dialog)),
@@ -999,9 +979,8 @@ async def main(page: ft.Page):
             [
                 ft.Container(
                     top=0, left=0, right=0, bottom=0,
-                    image=ft.DecorationImage(src=make_noise_texture(),
-                                            repeat=ft.ImageRepeat.REPEAT,
-                                            opacity=0.05),
+                    image=ft.DecorationImage(src="texture.png",
+                                            repeat=ft.ImageRepeat.REPEAT),
                 ),
                 ft.Container(
                     padding=PAGE_PADDING,
@@ -1015,6 +994,24 @@ async def main(page: ft.Page):
     )
     update_layout()
     render()
+
+    # A fresh install has no cached commander_index.txt yet, so the "Add a
+    # commander" autocomplete would otherwise stay empty until the user runs
+    # a check — which itself needs a commander already added. Fetch it once
+    # in the background so it's ready by the time they open that dialog.
+    def bootstrap_commander_index():
+        if commander_index:
+            return
+        def fetch():
+            try:
+                names = ew.fetch_commander_names(requests.Session())
+                ew.save_commander_index(names)
+                commander_index[:] = names
+            except Exception:
+                pass                                  # just retry next launch
+        page.run_thread(fetch)
+
+    bootstrap_commander_index()
 
     # Weekly auto-check. There's no cross-platform way to run Python on a
     # schedule while the app isn't open (Android would need native WorkManager

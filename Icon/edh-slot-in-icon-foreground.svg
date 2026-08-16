@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="EDH new-inclusions app icon foreground">
+  <title>EDH — new inclusions (foreground layer)</title>
+  <defs>
+    <!-- White = visible gold, black = a true alpha cutout (not just a navy
+         fill) so the "+" stays transparent under any adaptive background. -->
+    <mask id="plus-cutout" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect x="465.9" y="241.5" width="92.2" height="135.2" rx="17.4" fill="#fff"></rect>
+      <g fill="#000">
+        <rect x="486.4" y="301.1" width="51.2" height="16" rx="8"></rect>
+        <rect x="504" y="283.5" width="16" height="51.2" rx="8"></rect>
+      </g>
+    </mask>
+  </defs>
+  <g transform="translate(512 512) scale(1.8) translate(-512 -520.5)">
+    <g fill="#f3f5f8">
+      <rect x="240" y="407.4" width="86" height="110.6" rx="17.4" opacity="0.35" transform="rotate(-18 283 462.7)"></rect>
+      <rect x="353" y="364.4" width="86" height="153.6" rx="17.4" opacity="0.6" transform="rotate(-9 396 441.2)"></rect>
+      <rect x="585.2" y="364.4" width="86" height="153.6" rx="17.4" opacity="0.6" transform="rotate(9 628.2 441.2)"></rect>
+      <rect x="698.2" y="407.4" width="86" height="110.6" rx="17.4" opacity="0.35" transform="rotate(18 741.2 462.7)"></rect>
+    </g>
+    <rect x="470.9" y="357" width="82.4" height="156.1" rx="12.5" fill="none" stroke="#f3f5f8" stroke-opacity="0.45" stroke-width="9.8" stroke-dasharray="26 18"></rect>
+    <rect x="465.9" y="241.5" width="92.2" height="135.2" rx="17.4" fill="#dda23f" mask="url(#plus-cutout)"></rect>
+    <text x="506" y="782" fill="#f3f5f8" font-family="&#39;Space Grotesk&#39;,&#39;Helvetica Neue&#39;,Helvetica,Arial,sans-serif" font-size="245.8" font-weight="600" letter-spacing="12.3" text-anchor="middle">EDH</text>
+  </g>
+</svg>
