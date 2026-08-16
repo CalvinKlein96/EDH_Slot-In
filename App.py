@@ -1,32 +1,25 @@
 #!/usr/bin/env python3
-"""
-app.py — Flet GUI for the EDHREC new-card watcher.
+"""Flet GUI for the EDHREC new-card watcher.
 
-Single scrollable page. You manage your list of commanders right in the app
-(add a name, or remove one with the trash icon). Each commander is a heading
-with a reflowing grid of its cards underneath; the grid re-wraps as you resize
-the window. "Check for new cards" fetches the latest EDHREC data, downloads any
-new card images, updates the database, and badges the newly found cards as NEW.
+A single scrollable page: add or remove commanders right in the app, and
+each one gets a heading with a reflowing strip of its cards underneath.
+"Check for new cards" fetches the latest EDHREC data, downloads any new
+card images, and badges the newly found cards as NEW.
 
-Data location
--------------
-On desktop, all data lives in the folder this file sits in, so the GUI and the
-`edhrec_watcher.py` CLI share the same commanders.txt, db.txt and img/. On
-Android/iOS it uses the app's documents directory (a writable per-app folder).
-The commanders file is created automatically if it doesn't exist.
+On desktop, everything lives in the folder this file sits in, shared with
+the edhrec_watcher.py CLI. On Android/iOS it uses the app's own documents
+directory instead, since the script folder isn't writable there.
 
-Run on desktop (Flet 0.80+ / "1.0 beta"):
     pip install flet
-    flet run app.py            (or:  python app.py)
+    flet run App.py                      # or: python App.py
 
-Build an Android APK later (module name must match this file, App.py, since
-flet build otherwise looks for main.py):
+To build an Android APK, the module name has to match this file:
+
     flet build apk --module-name App
 
-Dependencies: flet (>=0.80), plus edhrec_watcher's deps (pyedhrec, requests) —
-see requirements.txt, which `flet build` also reads to decide what to bundle
-into the APK (without it, only bare flet gets packaged and the app crashes on
-device with "No module named requests").
+Needs flet plus edhrec_watcher's own deps (pyedhrec, requests) — see
+requirements.txt, which `flet build` reads to decide what to bundle into
+the APK.
 """
 
 import io
@@ -43,11 +36,11 @@ import requests
 
 import edhrec_watcher as ew
 
-# ---- layout constants ------------------------------------------------------ #
+# Layout constants
 CARD_ASPECT = 488 / 680                    # MTG card width:height ratio
 
 TILE_W = 180                                # preferred/max tile width
-MIN_TILE_W = 156                            # tiles never shrink smaller than this (120 * 1.3)
+MIN_TILE_W = 156                            # tiles never shrink smaller than this
 TILE_PAD = 6                                # padding inside each tile's elevated Card
 GAP = 14
 
@@ -62,13 +55,12 @@ ZOOM_PAD = 40                              # gap kept between the enlarged card 
 
 CHECK_INTERVAL_DAYS = 7                    # auto-run "Check for new cards" this often
 
-# ---- Material 3 theme -------------------------------------------------------
-# SEED drives page.theme/page.dark_theme (color_scheme_seed) below, which
-# derives full, properly-contrasted light AND dark tonal palettes from it.
-# Everything else here is a semantic role, not a literal color — Flutter
-# resolves these against whichever theme (light/dark) is currently active, so
-# toggling page.theme_mode re-themes the whole UI with no manual rebuild.
-SEED = "#19995D"                            # neutral grey (was rose, #d6486b)
+# Material 3 theme. SEED drives page.theme/page.dark_theme (color_scheme_seed)
+# below, deriving full light AND dark tonal palettes from one color. Everything
+# else here is a semantic role, not a literal color, so Flutter resolves it
+# against whichever theme is active and toggling page.theme_mode re-themes the
+# whole UI with no manual rebuild.
+SEED = "#19995D"
 ACCENT = ft.Colors.PRIMARY
 ON_ACCENT = ft.Colors.ON_PRIMARY
 SURFACE = ft.Colors.SURFACE
@@ -78,10 +70,8 @@ MUTED = ft.Colors.ON_SURFACE_VARIANT
 LINE = ft.Colors.OUTLINE_VARIANT
 SCRIM = ft.Colors.with_opacity(0.6, ft.Colors.SCRIM)
 
-# ---- shared "glass" styling ---------------------------------------------
-# The same frosted-glass recipe as the card tiles' NEW badge (blur + a
-# translucent fill + a thin light border), reused across the rest of the
-# GUI's surfaces so everything reads as one consistent design language.
+# Shared "glass" styling: blur + a translucent fill + a thin light border,
+# reused across the GUI so everything reads as one consistent design.
 GLASS_BLUR = 8
 GLASS_RADIUS = 12
 
@@ -92,8 +82,7 @@ def glass_border(opacity: float = 0.35) -> ft.Border:
 
 
 def glass_shape(opacity: float = 0.35, radius: float = GLASS_RADIUS) -> ft.RoundedRectangleBorder:
-    """Same border, for controls (dialogs) that take a shape instead of a
-    plain Container border."""
+    """Same border, for dialogs (which take a shape, not a Container border)."""
     return ft.RoundedRectangleBorder(
         radius=radius,
         side=ft.BorderSide(width=1, color=ft.Colors.with_opacity(opacity, ft.Colors.WHITE)),
@@ -111,8 +100,8 @@ _bytes_cache: dict[str, bytes] = {}
 
 
 def make_noise_texture(size: int = 96, alpha: int = 14) -> bytes:
-    """A tiny hand-encoded PNG of per-pixel gray noise (no Pillow dependency
-    available), tiled at low opacity behind the page for a mild grain texture."""
+    """A tiny hand-encoded PNG of gray noise (no Pillow available), tiled at
+    low opacity behind the page for a mild grain texture."""
     def chunk(tag: bytes, data: bytes) -> bytes:
         return (struct.pack(">I", len(data)) + tag + data
                 + struct.pack(">I", zlib.crc32(tag + data)))
@@ -132,26 +121,24 @@ def make_noise_texture(size: int = 96, alpha: int = 14) -> bytes:
             + chunk(b"IEND", b""))
 
 
-# --------------------------------------------------------------------------- #
 # Data directory + commander-file management (no CWD dependence)
-# --------------------------------------------------------------------------- #
 
 async def _resolve_data_dir(page: ft.Page) -> Path:
-    """Where commanders.txt / db.txt / img/ live. Script folder on desktop,
-    app documents directory on mobile (the script folder is read-only there)."""
+    """Where commanders.txt / db.txt / img/ live: the script folder on
+    desktop, the app's documents directory on mobile."""
     try:
         if page.platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS):
             base = await page.storage_paths.get_application_documents_directory()
             return Path(base) / "edhrec_watcher"
-    except Exception:                                  # noqa: BLE001
+    except Exception:
         pass                                           # fall back to script dir
     return Path(__file__).resolve().parent
 
 
 def _init_paths(data_dir: Path) -> None:
-    """Point edhrec_watcher's file constants at data_dir and ensure they exist.
-    The CLI functions read these module globals at call time, so reassigning
-    them here reroutes all reads/writes without touching the CLI."""
+    """Point edhrec_watcher's file constants at data_dir and ensure they
+    exist. Its functions read these module globals at call time, so
+    reassigning them here reroutes all reads/writes without touching them."""
     data_dir.mkdir(parents=True, exist_ok=True)
     ew.DEFAULT_COMMANDER_FILE = data_dir / "commanders.txt"
     ew.DB_FILE = data_dir / "db.txt"
@@ -167,8 +154,8 @@ def _init_paths(data_dir: Path) -> None:
 
 
 def read_commander_list() -> list[str]:
-    """Read commanders.txt into a list (blank lines and '#' comments ignored).
-    Unlike ew.read_commanders it never exits — a missing file is just empty."""
+    """Read commanders.txt into a list (blank lines and '#' comments
+    ignored). Unlike ew.read_commanders, a missing file is just empty."""
     p = ew.DEFAULT_COMMANDER_FILE
     if not p.exists():
         return []
@@ -189,7 +176,7 @@ def write_commander_list(names: list[str]) -> None:
 def add_commander_name(commanders: list[str], name: str,
                        commander_index: list[str]) -> str:
     """Add a commander to the list + file. Returns a status message. Warns
-    (but doesn't block) if the name isn't in the cached commander index —
+    (but doesn't block) if the name isn't in the cached commander index -
     that index can be empty on first run or miss brand-new cards, so a
     mismatch is a hint to double-check spelling, not proof the name is wrong."""
     name = " ".join(name.split())          # trim + collapse inner whitespace
@@ -206,15 +193,15 @@ def add_commander_name(commanders: list[str], name: str,
 
 
 def remove_commander_name(commanders: list[str], name: str) -> str:
-    """Remove a commander from the list + file (its cards/images stay in the DB,
-    so re-adding it later won't re-flag old cards as new). Returns a message."""
+    """Remove a commander from the list + file. Its cards/images stay in
+    the DB, so re-adding it later won't re-flag old cards as new."""
     commanders[:] = [c for c in commanders if c != name]
     write_commander_list(commanders)
     return f"Removed {name}."
 
 
 def move_commander(commanders: list[str], name: str, delta: int) -> None:
-    """Swap a commander with its neighbor delta positions away, and persist
+    """Swap a commander with its neighbor delta positions away and persist
     the new order. A no-op if already at that end of the list."""
     i = commanders.index(name)
     j = i + delta
@@ -243,11 +230,11 @@ def restore_backup_zip(zip_bytes: bytes, data_dir: Path) -> None:
 
 
 def backfill_missing_prices(session: requests.Session) -> int:
-    """Fetch+cache USD/EUR price + purchase-link data for every tracked card
-    that's never been successfully checked — not just cards found in the
-    current run. A failed lookup (rate-limited/timed out) is left uncached
-    so it's retried next time, rather than being mistaken for a confirmed
-    "no price anywhere". Returns how many were newly cached."""
+    """Fetch and cache price/purchase-link data for every tracked card
+    that's never been successfully looked up, not just cards found in the
+    current run. A failed lookup stays uncached so it's retried next time
+    instead of being mistaken for a confirmed "no price anywhere". Returns
+    how many were newly cached."""
     card_meta = ew.load_card_meta()
     missing = {r["card"] for r in ew.load_db()
               if ew.slugify(r["card"]) not in card_meta}
@@ -262,15 +249,13 @@ def backfill_missing_prices(session: requests.Session) -> int:
     return count
 
 
-# --------------------------------------------------------------------------- #
 # Card tiles
-# --------------------------------------------------------------------------- #
 
 def _img_bytes(path: Path) -> bytes:
-    """Load a local image as raw bytes (cached). In Flet 0.80+, Image.src is
-    typed Union[str, bytes], so raw bytes are a first-class source. This works
-    the same on desktop and Android and avoids the assets pipeline — which
-    matters because our images are downloaded at runtime into img/."""
+    """Load a local image as raw bytes (cached). Image.src accepts raw
+    bytes directly in Flet, which works the same on desktop and Android and
+    skips the assets pipeline entirely, since images are downloaded at
+    runtime into img/."""
     key = str(path)
     if key not in _bytes_cache:
         _bytes_cache[key] = path.read_bytes()
@@ -286,7 +271,7 @@ def tile_dims(tile_w: float) -> tuple[float, float]:
 def fit_tiles(available_width: float) -> tuple[int, float]:
     """CSS-grid-style `repeat(auto-fit, minmax(MIN_TILE_W, TILE_W))` sizing:
     as many whole cards as fit at MIN_TILE_W, each then stretched (capped at
-    TILE_W) to exactly fill the available width — so there's never a
+    TILE_W) to exactly fill the available width, so there's never a
     left-over sliver wide enough to show a partial card. Returns (count, width)."""
     n = max(1, int((available_width + GAP) // (MIN_TILE_W + GAP)))
     tile_w = min(TILE_W, (available_width - (n - 1) * GAP) / n)
@@ -298,12 +283,11 @@ CARDMARKET_COLOR = ft.Colors.ORANGE_800
 
 
 def _price_chip(label: str, symbol: str, price: str, bgcolor: str, url: str | None,
-                on_open_url: Callable[[str], Awaitable[None]] | None) -> ft.Control:
-    """A small colored, labeled price tag (e.g. "TCG $4.20"); clickable
-    through to that marketplace's page for this card, if a link was cached.
-    Same frosted-glass recipe as the NEW badge, just tinted per marketplace.
-    on_open_url is an async callback — a plain lambda around it would just
-    create a coroutine and never await it, so on_click is async too."""
+               on_open_url: Callable[[str], Awaitable[None]] | None) -> ft.Control:
+    """A small colored price tag (e.g. "TCG $4.20"), clickable through to
+    that marketplace's page if a link was cached. on_open_url is async, so
+    on_click has to be too — a plain lambda would create the coroutine and
+    never await it."""
     chip = ft.Container(
         content=ft.Text(f"{label} {symbol}{price}", size=10,
                         weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
@@ -325,8 +309,8 @@ def make_tile(card_name: str, image_file: str, tile_w: float, is_new: bool = Fal
               on_zoom: Callable[[bytes], None] | None = None,
               on_open_url: Callable[[str], Awaitable[None]] | None = None) -> ft.Container:
     """One card: image (or placeholder), name, optional NEW badge, and a row
-    of clickable USD/TCGplayer + EUR/Cardmarket price tags below. If on_zoom
-    is given and an image exists, clicking the art or name enlarges it."""
+    of clickable price tags below. Clicking the art or name enlarges it, if
+    on_zoom is given and an image exists."""
     img_h, _ = tile_dims(tile_w)
     img_path = ew.IMG_DIR / image_file if image_file else None
     img_bytes = _img_bytes(img_path) if img_path and img_path.exists() else None
@@ -399,8 +383,7 @@ ACTIONS_ROW_H = 44                          # extra height the commander tile's 
 
 def _commander_art(slug: str, w: float, h: float) -> tuple[ft.Control, bytes | None]:
     """One commander-tile image (or placeholder). Returns the control plus
-    its raw bytes (or None if not downloaded yet, in which case it's not
-    clickable — nothing to zoom to)."""
+    its raw bytes, or None if not downloaded yet (nothing to zoom to)."""
     img_path = ew.IMG_DIR / f"{slug}.jpg"
     img_bytes = _img_bytes(img_path) if img_path.exists() else None
     if img_bytes is not None:
@@ -421,10 +404,9 @@ def make_commander_tile(
     on_mark_seen: Callable, on_delete: Callable,
 ) -> ft.Container:
     """The commander itself, shown as the first tile in its own card strip:
-    its own art (clickable/zoomable like any other card, once downloaded),
-    its name, and the move/mark-seen/remove actions that used to live in a
-    separate header row. A "Card A // Card B" partner pair shows both cards
-    as a slightly shifted stack instead of one image."""
+    its own art (clickable/zoomable once downloaded), its name, and the
+    move/mark-seen/remove actions. A "Card A // Card B" partner pair shows
+    both cards as a slightly shifted stack instead of one image."""
     img_h, _ = tile_dims(tile_w)
     commander_w = max(190, tile_w * 1.3)
     names = ew.partner_names(commander)
@@ -453,8 +435,8 @@ def make_commander_tile(
                             on_click=(lambda e: on_zoom(front_bytes))
                             if front_bytes is not None else None)
         art_area = ft.Stack([back, front], width=commander_w, height=img_h)
-        # Each name in the "A // B" text is independently clickable to zoom
-        # its own card — the two cards in the stack above aren't one unit.
+        # Each name in "A // B" zooms its own card independently — the two
+        # cards in the stack above aren't a single unit.
         name_area = ft.Text(
             width=commander_w, max_lines=2, text_align=ft.TextAlign.CENTER,
             spans=[
@@ -506,17 +488,14 @@ def make_commander_tile(
 
 
 def make_carousel(tile_h: float) -> ft.Row:
-    """A plain, freely-scrolling horizontal strip of tiles — no snapping or
-    repositioning of any kind. Tile width is sized elsewhere (fit_tile_width)
-    so a whole number of cards always fits the available width, meaning no
-    partial card is ever baked into the layout."""
+    """A plain, freely-scrolling horizontal strip of tiles, no snapping.
+    Tile width is sized elsewhere (fit_tiles) so a whole number of cards
+    always fits the available width and no partial card is ever laid out."""
     return ft.Row(spacing=GAP, height=tile_h, scroll=ft.ScrollMode.AUTO,
                   vertical_alignment=ft.CrossAxisAlignment.START)
 
 
-# --------------------------------------------------------------------------- #
 # App
-# --------------------------------------------------------------------------- #
 
 async def main(page: ft.Page):
     data_dir = await _resolve_data_dir(page)
@@ -535,7 +514,7 @@ async def main(page: ft.Page):
     commander_index: list[str] = ew.load_commander_index()
     dismissed: dict[str, str] = ew.load_dismissed()
 
-    # ---- responsive tile sizing: recomputed on load and on window resize --- #
+    # Responsive tile sizing, recomputed on load and on window resize.
     layout: dict[str, float] = {"tile_w": TILE_W, "n": 0}
 
     def update_layout() -> bool:
@@ -565,7 +544,7 @@ async def main(page: ft.Page):
     progress = ft.ProgressRing(width=18, height=18, visible=False, color=ACCENT)
     body = ft.Column(spacing=16, expand=True)
 
-    # ---- click-to-zoom overlay: enlarge a tile's image over a blurred bg ---- #
+    # Click-to-zoom overlay: enlarge a tile's image over a blurred background.
     zoom_image = ft.Image(src="", width=ZOOM_W, height=ZOOM_H,
                           fit=ft.BoxFit.CONTAIN, border_radius=12)
 
@@ -594,8 +573,8 @@ async def main(page: ft.Page):
         status.value = msg
         page.update()
 
-    # ---- render the commander sections from the current list + DB ---------- #
     def render():
+        """Rebuild the commander sections from the current list + DB."""
         rows = ew.load_db()
         card_meta = ew.load_card_meta()
         seen.clear(); grids.clear(); empty_labels.clear()
@@ -612,7 +591,7 @@ async def main(page: ft.Page):
             seen[commander] = {r["card"] for r in cards}
 
             # Cards recorded on the most recent date on file for this commander
-            # are "new from the last check" — badged until a later check adds
+            # are "new from the last check": badged until a later check adds
             # more, or until manually dismissed via "mark as seen".
             latest_date = max((c["date"] for c in cards if c["date"]), default=None)
             dismissed_through = dismissed.get(cslug)
@@ -649,7 +628,6 @@ async def main(page: ft.Page):
             ))
         page.update()
 
-    # ---- add / delete / reorder / mark-seen handlers ------------------------ #
     def on_add(_=None):
         set_status(add_commander_name(commanders, new_field.value or "",
                                       commander_index))
@@ -699,8 +677,8 @@ async def main(page: ft.Page):
                               f"Its downloaded cards stay in the database.")
         page.show_dialog(confirm_dialog)
 
-    # ---- the check scan (blocking; run on Flet's executor) ---------------- #
     def worker():
+        """The check scan, blocking, run on Flet's executor thread."""
         edhrec = ew.EDHRec()
         session = requests.Session()
         new_entries: list[dict] = []
@@ -710,9 +688,9 @@ async def main(page: ft.Page):
             set_status(f"Checking {commander}…")
 
             # The commander's own tile is clickable/zoomable like any other
-            # card, so make sure its art is cached too — one image per name
-            # for a "Card A // Card B" partner pair, since each is a real,
-            # separately-lookupable card (the combined string isn't).
+            # card, so make sure its art is cached too, one image per name
+            # for a partner pair since each half is a real, separately
+            # lookupable card (the combined string isn't).
             for name in ew.partner_names(commander):
                 dest = ew.IMG_DIR / f"{ew.slugify(name)}.jpg"
                 if not dest.exists():
@@ -720,7 +698,7 @@ async def main(page: ft.Page):
 
             try:
                 current = ew.extract_new_card_names(edhrec, commander)
-            except Exception as exc:                       # noqa: BLE001
+            except Exception as exc:
                 set_status(f"{commander}: fetch failed ({exc})")
                 continue
 
@@ -736,8 +714,7 @@ async def main(page: ft.Page):
             grid = grids.get(commander)
             if grid is not None:
                 for e in reversed(entries):                # newest first
-                    # index 2: after the commander tile (0) and its divider (1)
-                    grid.controls.insert(2, make_tile(
+                    grid.controls.insert(2, make_tile(     # after the commander tile + divider
                         e["card"], e["image"], layout["tile_w"], is_new=True,
                         meta=card_meta.get(ew.slugify(e["card"])),
                         on_zoom=open_zoom, on_open_url=open_url))
@@ -749,7 +726,7 @@ async def main(page: ft.Page):
             ew.append_db(new_entries)
 
         # Backfill prices for any tracked card that predates price-fetching (or
-        # whose lookup failed last time) — not just cards found in this run.
+        # whose lookup failed last time), not just cards found in this run.
         set_status("Fetching missing prices…")
         backfill_missing_prices(session)
 
@@ -759,7 +736,7 @@ async def main(page: ft.Page):
             ew.save_commander_index(fresh_names)
             commander_index[:] = fresh_names
             index_note = " Commander list refreshed."
-        except Exception:                                    # noqa: BLE001
+        except Exception:
             pass                                              # keep the cached index
 
         ew.save_last_check(date.today().isoformat())
@@ -778,17 +755,16 @@ async def main(page: ft.Page):
         set_status("Contacting EDHREC…")
         page.run_thread(worker)      # blocking work off the event loop
 
-    # ---- backup and restore ------------------------------------------------- #
-    # FilePicker is a non-visual Service, not a visual control — it self-registers
-    # into the page's service registry on construction. It must NOT be added to
-    # page.overlay (that's for visual controls); doing so makes the client try to
-    # render it as a widget, which fails with "Unknown control: FilePicker".
+    # FilePicker is a non-visual Service, not a visual control: it self-registers
+    # into the page's service registry on construction and must NOT be added to
+    # page.overlay (that's for visual controls). Doing so makes the client try
+    # to render it as a widget, which fails with "Unknown control: FilePicker".
     file_picker = ft.FilePicker()
 
     async def do_backup(_=None):
         try:
             zip_bytes = build_backup_zip(data_dir)
-        except Exception as exc:                             # noqa: BLE001
+        except Exception as exc:
             set_status(f"Backup failed: {exc}")
             return
         fname = f"edhrec_backup_{date.today().isoformat()}.zip"
@@ -818,7 +794,7 @@ async def main(page: ft.Page):
         page.pop_dialog()
         try:
             restore_backup_zip(pending_restore["bytes"], data_dir)
-        except Exception as exc:                             # noqa: BLE001
+        except Exception as exc:
             set_status(f"Restore failed: {exc}")
             return
         commanders[:] = read_commander_list()
@@ -838,14 +814,13 @@ async def main(page: ft.Page):
         pending_restore["bytes"] = files[0].bytes
         page.show_dialog(restore_confirm_dialog)
 
-    # Service (like FilePicker) — self-registers on construction, must NOT
-    # be added to page.overlay (see the FilePicker note above).
+    # Also a self-registering Service, like FilePicker above.
     url_launcher = ft.UrlLauncher()
 
     async def open_url(url: str):
         await url_launcher.launch_url(url)
 
-    # ---- delete cards older than a chosen date ----------------------------- #
+    # Delete cards older than a chosen date
     prune_confirm_text = ft.Text(color=TEXT)
     prune_confirm_dialog = ft.AlertDialog(
         modal=True,
@@ -927,7 +902,7 @@ async def main(page: ft.Page):
         actions_alignment=ft.MainAxisAlignment.END,
     )
 
-    # ---- top bar + add row ------------------------------------------------ #
+    # Top bar + add row
     check_btn = ft.Button("Check for new cards", icon=ft.Icons.REFRESH,
                           bgcolor=ft.Colors.with_opacity(0.75, ACCENT), color=ON_ACCENT,
                           style=glass_button_style(), on_click=run_check)
@@ -949,7 +924,7 @@ async def main(page: ft.Page):
                              text_size=13, on_submit=on_add,
                              on_change=lambda e: update_suggestions())
 
-    # ---- add-commander autocomplete (backed by the cached commander index) - #
+    # Add-commander autocomplete, backed by the cached commander index.
     MAX_SUGGESTIONS = 8
     suggestion_list = ft.Column(spacing=0)
     suggestions = ft.Container(content=suggestion_list, width=320,
@@ -1041,11 +1016,10 @@ async def main(page: ft.Page):
     update_layout()
     render()
 
-    # ---- weekly auto-check --------------------------------------------------
-    # There's no cross-platform way to run Python on a schedule while the app
-    # isn't open (Android would need native WorkManager integration, which Flet
-    # doesn't expose). Instead: run the check on launch, and again whenever the
-    # app resumes from the background, if 7+ days have passed since the last one.
+    # Weekly auto-check. There's no cross-platform way to run Python on a
+    # schedule while the app isn't open (Android would need native WorkManager
+    # integration, which Flet doesn't expose), so instead: check on launch,
+    # and again on resume from background if 7+ days have passed since the last one.
     def maybe_auto_check():
         if not commanders or check_btn.disabled:
             return

@@ -1,35 +1,17 @@
 #!/usr/bin/env python3
+"""Watches EDHREC's "New Cards" tab for a list of commanders and reports
+only the cards you haven't seen before.
+
+    python edhrec_watcher.py check                        # fetch new cards
+    python edhrec_watcher.py list "Miirym, Sentinel Wyrm"  # see what's downloaded, --open for a gallery
+
+Commanders come from commanders.txt (one name per line, '#' for comments).
+Everything else it needs — the database, cached prices, downloaded images —
+lives alongside it in db.txt, card_meta.txt and img/.
+
+Requires: pip install pyedhrec requests
 """
-edhrec_watcher.py
-=================
- 
-Watch the EDHREC "New Cards" tab for a list of commanders and report only the
-cards you have not seen before.
- 
-Workflow
---------
-1. Put your commanders in a text file, one per line (default: commanders.txt).
-2. Run `python edhrec_watcher.py check`.
-   - For each commander it fetches the EDHREC "New Cards" list.
-   - Cards not already in the local database are reported as NEW.
-   - Their images are downloaded to img/ (from Scryfall).
-   - The database (db.txt) is updated so those cards are never reported again.
-3. Run `python edhrec_watcher.py list "Commander Name"` to see every card
-   downloaded so far for one commander (opens an HTML gallery with --open).
- 
-Data layout (created in the working directory)
-----------------------------------------------
-  commanders.txt   input, one commander per line ('#' starts a comment)
-  db.txt           the database, tab-separated:
-                     <commander_slug>\t<card_name>\t<image_file>\t<date_added>
-  img/             card images, one file per card: <card_slug>.jpg
-  reports/         generated HTML reports/galleries
- 
-Dependencies
-------------
-  pip install pyedhrec requests
-"""
- 
+
 import argparse
 import datetime as _dt
 import html
@@ -38,18 +20,16 @@ import sys
 import time
 import webbrowser
 from pathlib import Path
- 
+
 import requests
- 
+
 try:
     from pyedhrec import EDHRec
 except ImportError:
     sys.exit("Missing dependency. Install with:  pip install pyedhrec requests")
- 
-# --------------------------------------------------------------------------- #
+
 # Configuration
-# --------------------------------------------------------------------------- #
- 
+
 DB_FILE = Path("db.txt")
 IMG_DIR = Path("img")
 REPORT_DIR = Path("reports")
@@ -67,39 +47,36 @@ SCRYFALL_HEADERS = {
     "User-Agent": "edhrec-watcher/1.0 (personal deck tracker)",
     "Accept": "application/json",
 }
-SCRYFALL_DELAY = 0.12       # seconds between Scryfall requests
+SCRYFALL_DELAY = 0.12         # seconds between Scryfall requests
 SCRYFALL_SEARCH_DELAY = 0.75  # seconds between /cards/search pages (a tight burst
                               # of ~20 requests at SCRYFALL_DELAY trips their limiter)
-COMMANDER_DELAY = 1.0       # seconds between commanders (be polite to EDHREC)
- 
- 
-# --------------------------------------------------------------------------- #
+COMMANDER_DELAY = 1.0         # seconds between commanders (be polite to EDHREC)
+
+
 # Helpers
-# --------------------------------------------------------------------------- #
- 
+
 def partner_names(commander: str) -> list[str]:
-    """Split a "Card A // Card B" partner-pair commander into its individual
-    card names (each a real, separately-lookupable Scryfall card). Returns a
-    single-item list for an ordinary, non-partner commander."""
+    """Split "Card A // Card B" into its individual card names (or just
+    [commander] for a non-partner deck)."""
     return [p.strip() for p in re.split(r"\s*//\s*", commander) if p.strip()]
 
 
 def slugify(name: str) -> str:
-    """Mirror EDHREC's card-name slug: lowercase, spaces->'-', drop ',' and '.
-    A "Card A // Card B" partner pair collapses to EDHREC's real URL
-    convention for these: both names concatenated with no separator marker
-    (verified directly against the live EDHREC API)."""
+    """Mirror EDHREC's card-name slug: lowercase, spaces to '-', drop commas
+    and apostrophes. A partner pair collapses to both names concatenated
+    with no separator, which is EDHREC's actual URL convention for these
+    (confirmed against the live API)."""
     s = " ".join(partner_names(name)).lower()
     s = s.replace(" ", "-")
     s = s.replace("'", "")
     s = s.replace(",", "")
     return s
- 
- 
+
+
 def today() -> str:
     return _dt.date.today().isoformat()
- 
- 
+
+
 def read_commanders(path: Path) -> list[str]:
     if not path.exists():
         sys.exit(
@@ -114,12 +91,10 @@ def read_commanders(path: Path) -> list[str]:
         if line:
             names.append(line)
     return names
- 
- 
-# --------------------------------------------------------------------------- #
+
+
 # Database (a plain tab-separated text file)
-# --------------------------------------------------------------------------- #
- 
+
 def load_db() -> list[dict]:
     """Return every DB row as {commander, card, image, date}."""
     rows = []
@@ -129,20 +104,19 @@ def load_db() -> list[dict]:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         parts = line.split("\t")
-        # pad short rows defensively
-        while len(parts) < 4:
+        while len(parts) < 4:      # pad short rows defensively
             parts.append("")
         rows.append(
             {"commander": parts[0], "card": parts[1],
              "image": parts[2], "date": parts[3]}
         )
     return rows
- 
- 
+
+
 def seen_cards_for(commander_slug: str, rows: list[dict]) -> set[str]:
     return {r["card"] for r in rows if r["commander"] == commander_slug}
- 
- 
+
+
 def append_db(entries: list[dict]) -> None:
     """Append rows; create with a header comment on first write."""
     new_file = not DB_FILE.exists()
@@ -154,20 +128,19 @@ def append_db(entries: list[dict]) -> None:
 
 
 def save_db(rows: list[dict]) -> None:
-    """Overwrite db.txt with exactly these rows. Unlike append_db (which only
-    ever adds), this is how a prune/delete persists what's left."""
+    """Overwrite db.txt with exactly these rows. append_db only ever adds;
+    this is how a prune/delete persists what's left."""
     lines = ["# commander_slug\tcard_name\timage_file\tdate_added"]
     lines += [f"{r['commander']}\t{r['card']}\t{r['image']}\t{r['date']}" for r in rows]
     DB_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def delete_cards_before(cutoff_date: str, commanders: list[str]) -> tuple[int, int]:
-    """Drop every DB row recorded before cutoff_date (an ISO date string,
-    exclusive) and delete any of their images no longer referenced by a
-    surviving row. Images are shared across commanders (and with a tracked
-    commander's own portrait, protected here via `commanders`), so a file is
-    only actually deleted once nothing left needs it. Rows with no date are
-    never touched. Returns (rows_deleted, images_deleted)."""
+    """Drop every DB row recorded before cutoff_date (exclusive) and delete
+    any of their images that nothing left still points to. Images are shared
+    across commanders, and a tracked commander's own portrait is protected
+    even if its filename happens to match a pruned card. Rows with no date
+    are left alone. Returns (rows_deleted, images_deleted)."""
     rows = load_db()
     removed = [r for r in rows if r["date"] and r["date"] < cutoff_date]
     if not removed:
@@ -189,13 +162,10 @@ def delete_cards_before(cutoff_date: str, commanders: list[str]) -> tuple[int, i
     return len(removed), images_deleted
 
 
-# --------------------------------------------------------------------------- #
 # Commander name index (cached, powers the app's add-commander autocomplete)
-# --------------------------------------------------------------------------- #
 
 def load_commander_index() -> list[str]:
-    """Return the cached list of commander-legal card names, or [] if it has
-    never been fetched yet."""
+    """Cached list of commander-legal card names, or [] if never fetched."""
     if not COMMANDER_INDEX_FILE.exists():
         return []
     return [ln for ln in COMMANDER_INDEX_FILE.read_text(encoding="utf-8").splitlines()
@@ -208,9 +178,9 @@ def save_commander_index(names: list[str]) -> None:
 
 
 def fetch_commander_names(session: requests.Session) -> list[str]:
-    """Fetch every card name Scryfall considers legal as a commander, via its
-    `is:commander` search filter. Raises requests.RequestException on failure
-    so callers can fall back to whatever is already cached."""
+    """Every card name Scryfall considers legal as a commander (its
+    `is:commander` filter). Raises requests.RequestException on failure so
+    callers can fall back to whatever is already cached."""
     names: set[str] = set()
     url = SCRYFALL_SEARCH
     params = {"q": "is:commander", "unique": "cards"}
@@ -232,12 +202,9 @@ def fetch_commander_names(session: requests.Session) -> list[str]:
     return sorted(names)
 
 
-# --------------------------------------------------------------------------- #
 # Last-check tracking (drives the app's weekly auto-check)
-# --------------------------------------------------------------------------- #
 
 def load_last_check() -> str | None:
-    """Return the ISO date of the last completed check, or None if none yet."""
     if not LAST_CHECK_FILE.exists():
         return None
     text = LAST_CHECK_FILE.read_text(encoding="utf-8").strip()
@@ -249,8 +216,8 @@ def save_last_check(date_str: str) -> None:
 
 
 def load_dismissed() -> dict[str, str]:
-    """Map commander_slug -> ISO date its NEW badges have been manually
-    cleared through (via "mark as seen"). Missing entries mean never dismissed."""
+    """commander_slug -> ISO date its NEW badges were last cleared through
+    (via "mark as seen"). Missing entries mean never dismissed."""
     if not DISMISSED_FILE.exists():
         return {}
     out = {}
@@ -267,17 +234,15 @@ def save_dismissed(dismissed: dict[str, str]) -> None:
     DISMISSED_FILE.write_text(body + ("\n" if body else ""), encoding="utf-8")
 
 
-# --------------------------------------------------------------------------- #
 # Card price cache (shown on tiles; also drives Scryfall requests in
-# _record_cards, so both the CLI and the app benefit from one shared cache)
-# --------------------------------------------------------------------------- #
+# _record_cards, so both the CLI and the app share one cache)
 
 CARD_META_FIELDS = ("usd", "eur", "tcgplayer", "cardmarket")
 
 
 def load_card_meta() -> dict[str, dict[str, str | None]]:
     """card_slug -> {"usd": price, "eur": price, "tcgplayer": purchase url,
-    "cardmarket": purchase url} — any of the four may be None."""
+    "cardmarket": purchase url}; any of the four may be None."""
     if not CARD_META_FILE.exists():
         return {}
     out = {}
@@ -314,14 +279,11 @@ def save_theme_mode(mode: str) -> None:
 
 
 def fetch_card_prices(card_name: str, session: requests.Session) -> dict[str, str | None] | None:
-    """Look up a card's USD and EUR prices, plus its TCGplayer and Cardmarket
-    purchase links, on Scryfall — one request covers both currencies and
-    both marketplaces. Any field in the returned dict may be None (no
-    listing for this printing). Returns None (distinct from a dict of all
-    Nones) if the *request itself* failed — rate-limited, timed out, or
-    Scryfall didn't recognize the name — so callers can tell "confirmed no
-    price" apart from "couldn't check" and retry the latter instead of
-    caching it as a permanent dead end."""
+    """USD/EUR prices plus TCGplayer/Cardmarket purchase links, one Scryfall
+    request for all four. A field can legitimately be None (no listing for
+    this printing) - but the whole return value is None if the request
+    itself failed, so callers can retry a failed lookup instead of caching
+    it as a permanent "no price"."""
     try:
         for attempt in range(5):
             resp = session.get(SCRYFALL_NAMED, params={"exact": card_name},
@@ -344,17 +306,14 @@ def fetch_card_prices(card_name: str, session: requests.Session) -> dict[str, st
         time.sleep(SCRYFALL_SEARCH_DELAY)
 
 
-# --------------------------------------------------------------------------- #
 # EDHREC / Scryfall access
-# --------------------------------------------------------------------------- #
- 
-def extract_new_card_names(edhrec: EDHRec, commander: str) -> list[str]:
-    """Return the card names in the commander's EDHREC 'New Cards' section.
 
-    get_new_cards() returns {header: [cardview, ...]} or {} if absent.
+def extract_new_card_names(edhrec: EDHRec, commander: str) -> list[str]:
+    """Card names in the commander's EDHREC "New Cards" section.
+    get_new_cards() returns {header: [cardview, ...]} or {} if there's none.
     """
-    # pyedhrec does its own lower/dash/strip(",'") formatting but doesn't know
-    # about our "Card A // Card B" partner-pair syntax, so normalize it first.
+    # pyedhrec does its own lower/dash/strip(",'") formatting but doesn't
+    # know about "Card A // Card B" partner syntax, so normalize it first.
     result = edhrec.get_new_cards(" ".join(partner_names(commander)))
     if not result:
         return []
@@ -365,8 +324,8 @@ def extract_new_card_names(edhrec: EDHRec, commander: str) -> list[str]:
         if n:
             names.append(n)
     return names
- 
- 
+
+
 def download_image(card_name: str, dest: Path, session: requests.Session) -> bool:
     """Download the normal-size card image from Scryfall. Return True on success."""
     try:
@@ -384,12 +343,10 @@ def download_image(card_name: str, dest: Path, session: requests.Session) -> boo
         return False
     finally:
         time.sleep(SCRYFALL_DELAY)
- 
- 
-# --------------------------------------------------------------------------- #
+
+
 # HTML report / gallery
-# --------------------------------------------------------------------------- #
- 
+
 _HTML_HEAD = """<!doctype html>
 <meta charset="utf-8">
 <title>{title}</title>
@@ -411,8 +368,8 @@ _HTML_HEAD = """<!doctype html>
 <h1>{title}</h1>
 <p class="sub">{subtitle}</p>
 """
- 
- 
+
+
 def _card_tile(name: str, image_file: str) -> str:
     safe = html.escape(name)
     if image_file and (IMG_DIR / image_file).exists():
@@ -421,8 +378,8 @@ def _card_tile(name: str, image_file: str) -> str:
     else:
         inner = f'<div class="missing">{safe}<br>(no image)</div>'
     return f'<div class="card">{inner}<div class="name">{safe}</div></div>'
- 
- 
+
+
 def write_report(title: str, subtitle: str, groups: list[tuple[str, list[dict]]],
                  filename: str) -> Path:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -438,42 +395,40 @@ def write_report(title: str, subtitle: str, groups: list[tuple[str, list[dict]]]
     path = REPORT_DIR / filename
     path.write_text("\n".join(parts), encoding="utf-8")
     return path
- 
- 
-# --------------------------------------------------------------------------- #
+
+
 # Commands
-# --------------------------------------------------------------------------- #
- 
+
 def cmd_check(args) -> None:
     commanders = read_commanders(args.file)
     if not commanders:
         sys.exit("No commanders found in the input file.")
- 
+
     edhrec = EDHRec()
     session = requests.Session()
     db_rows = load_db()
- 
+
     new_entries: list[dict] = []          # rows to append to the DB
     report_groups: list[tuple[str, list[dict]]] = []
     total_new = 0
- 
+
     for i, commander in enumerate(commanders):
         cslug = slugify(commander)
         seen = seen_cards_for(cslug, db_rows)
         first_time = len(seen) == 0
- 
+
         try:
             current = extract_new_card_names(edhrec, commander)
-        except Exception as exc:                       # noqa: BLE001
+        except Exception as exc:
             print(f"[!] {commander}: could not fetch EDHREC data ({exc})")
             if i < len(commanders) - 1:
                 time.sleep(COMMANDER_DELAY)
             continue
- 
+
         fresh = [c for c in current if c not in seen]
- 
-        # ---- first run for this commander: establish a baseline -----------
+
         if first_time and not args.show_baseline:
+            # First run for this commander: just establish a baseline.
             entries = _record_cards(cslug, fresh, session, args.no_images)
             new_entries.extend(entries)
             print(f"[baseline] {commander}: recorded {len(entries)} card(s) "
@@ -481,8 +436,7 @@ def cmd_check(args) -> None:
             if i < len(commanders) - 1:
                 time.sleep(COMMANDER_DELAY)
             continue
- 
-        # ---- normal run ----------------------------------------------------
+
         if not fresh:
             print(f"[ok] {commander}: no new cards")
         else:
@@ -496,15 +450,15 @@ def cmd_check(args) -> None:
                 got = "" if (e["image"] and (IMG_DIR / e["image"]).exists()) \
                     else "  (image not found)"
                 print(f"        - {e['card']}{got}")
- 
+
         if i < len(commanders) - 1:
             time.sleep(COMMANDER_DELAY)
- 
+
     if new_entries:
         append_db(new_entries)
- 
+
     print(f"\nDone. {total_new} new card(s) across {len(commanders)} commander(s).")
- 
+
     if report_groups and args.report:
         ts = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         path = write_report(
@@ -515,12 +469,12 @@ def cmd_check(args) -> None:
         print(f"Report: {path}")
         if args.open:
             webbrowser.open(path.resolve().as_uri())
- 
- 
+
+
 def _record_cards(cslug: str, names: list[str], session: requests.Session,
                   no_images: bool) -> list[dict]:
     """Build DB entries for a list of card names, downloading images and
-    caching USD/EUR price + purchase-link data as needed."""
+    caching price data as needed."""
     entries = []
     meta = load_card_meta()
     meta_dirty = False
@@ -535,10 +489,9 @@ def _record_cards(cslug: str, names: list[str], session: requests.Session,
             if not ok:
                 image_file = ""
         if card_slug not in meta:
-            # Cache even a confirmed-empty result (a card genuinely absent
-            # from one marketplace shouldn't be re-queried every check), but
-            # NOT a failed request (rate-limited/timed out) — that must be
-            # retried, not mistaken for "checked, nothing there".
+            # A confirmed-empty result gets cached (no point re-querying a
+            # card genuinely absent from a marketplace) but a failed request
+            # doesn't, so it's retried instead of stuck as "checked, nothing".
             prices = fetch_card_prices(name, session)
             if prices is not None:
                 meta[card_slug] = prices
@@ -548,8 +501,8 @@ def _record_cards(cslug: str, names: list[str], session: requests.Session,
     if meta_dirty:
         save_card_meta(meta)
     return entries
- 
- 
+
+
 def cmd_list(args) -> None:
     cslug = slugify(args.commander)
     rows = [r for r in load_db() if r["commander"] == cslug]
@@ -557,12 +510,12 @@ def cmd_list(args) -> None:
         print(f"No cards recorded yet for '{args.commander}' (slug: {cslug}).")
         print("Run a 'check' first, or verify the commander name spelling.")
         return
- 
+
     rows.sort(key=lambda r: (r["date"], r["card"]))
     print(f"{args.commander}: {len(rows)} card(s) downloaded")
     for r in rows:
         print(f"  {r['date']}  {r['card']}")
- 
+
     path = write_report(
         args.commander,
         f"{len(rows)} card(s) downloaded",
@@ -572,17 +525,15 @@ def cmd_list(args) -> None:
     print(f"\nGallery: {path}")
     if args.open:
         webbrowser.open(path.resolve().as_uri())
- 
- 
-# --------------------------------------------------------------------------- #
+
+
 # CLI
-# --------------------------------------------------------------------------- #
- 
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Watch EDHREC's 'New Cards' tab for your commanders.")
     sub = p.add_subparsers(dest="command", required=True)
- 
+
     c = sub.add_parser("check", help="check commanders for new cards")
     c.add_argument("-f", "--file", type=Path, default=DEFAULT_COMMANDER_FILE,
                    help=f"commander list (default: {DEFAULT_COMMANDER_FILE})")
@@ -596,22 +547,22 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--open", action="store_true",
                    help="open the HTML report in your browser (implies --report)")
     c.set_defaults(func=cmd_check)
- 
+
     l = sub.add_parser("list", help="show all downloaded cards for a commander")
     l.add_argument("commander", help="commander name, e.g. \"Miirym, Sentinel Wyrm\"")
     l.add_argument("--open", action="store_true",
                    help="open the gallery in your browser")
     l.set_defaults(func=cmd_list)
     return p
- 
- 
+
+
 def main(argv=None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     if getattr(args, "open", False) and hasattr(args, "report"):
         args.report = True
     args.func(args)
- 
- 
+
+
 if __name__ == "__main__":
     main()
