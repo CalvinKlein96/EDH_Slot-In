@@ -1,8 +1,11 @@
-# EDHREC New-Card Watcher
+# EDH Slot-in
+
+<p align="center">
+  <img src="Icon/icon_1024.png" width="300">
+</p>
 
 A small desktop/Android app that watches EDHREC's "New Cards" tab for a list
-of your Commander (EDH) decks and tells you when a new card gets recommended
-for one of them — with art, USD/EUR pricing, and direct TCGplayer/Cardmarket
+of your Commander (EDH) decks and tells you when a new card would fit right in — with art, USD/EUR pricing, and direct TCGplayer/Cardmarket
 links, all in one scrollable window.
 
 ## Features
@@ -21,6 +24,10 @@ links, all in one scrollable window.
 - Light/dark theme, following Material 3.
 
 ## Running it
+
+On Android, you can install the apk that you can find under Releases here on Github. If you would rather want to run the desktop app, or build the apk from source follow the instructions below. 
+
+## Desktop
 
 ```
 pip install -r requirements.txt
