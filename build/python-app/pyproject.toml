@@ -1,0 +1,12 @@
+[tool.flet.app]
+# Local dev/test state and IDE/VCS metadata — not part of the shipped app.
+# Android uses its own per-app documents directory for real runtime data
+# (see App.py's _resolve_data_dir), so none of this is needed on a fresh
+# install; keeping it out of the bundle is pure size savings.
+exclude = [
+    ".git", ".idea", ".flet", "__pycache__",
+    "img", "reports",
+    "commanders.txt", "commander_index.txt", "db.txt", "card_meta.txt",
+    "dismissed.txt", "last_check.txt", "theme_mode.txt", "price_currency.txt",
+    "index.html", "EDHREC_checker.code-workspace",
+]

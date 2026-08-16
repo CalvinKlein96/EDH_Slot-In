@@ -15,3 +15,23 @@ ghyrson-starn-kelermorph	Hawkeye's Bow	hawkeyes-bow.jpg	2026-08-15
 ghyrson-starn-kelermorph	Wizard's Staff	wizards-staff.jpg	2026-08-15
 ghyrson-starn-kelermorph	Mjölnir, Hammer of Thor	mjölnir-hammer-of-thor.jpg	2026-08-15
 ghyrson-starn-kelermorph	Hawkeye, Avenging Archer	hawkeye-avenging-archer.jpg	2026-08-15
+hearthhull-the-worldseed	Mole Man, Moloid Master	mole-man-moloid-master.jpg	2026-08-16
+hearthhull-the-worldseed	Through the Forest Gate	through-the-forest-gate.jpg	2026-08-16
+hearthhull-the-worldseed	Training Compound	training-compound.jpg	2026-08-16
+hearthhull-the-worldseed	Ka-Zar of the Savage Land	ka-zar-of-the-savage-land.jpg	2026-08-16
+hearthhull-the-worldseed	Dark Fortress	dark-fortress.jpg	2026-08-16
+kratos-stoic-father	Thor Odinson	thor-odinson.jpg	2026-08-16
+kratos-stoic-father	Sif's Spearmaster	sifs-spearmaster.jpg	2026-08-16
+kratos-stoic-father	Thor, Asgard's Avenger	thor-asgards-avenger.jpg	2026-08-16
+kratos-stoic-father	Thor, God of Thunder	thor-god-of-thunder.jpg	2026-08-16
+kratos-stoic-father	Loki, God of Lies	loki-god-of-lies.jpg	2026-08-16
+atreus-impulsive-son-kratos-stoic-father	Loki, God of Mischief	loki-god-of-mischief.jpg	2026-08-16
+atreus-impulsive-son-kratos-stoic-father	Kid Loki	kid-loki.jpg	2026-08-16
+atreus-impulsive-son-kratos-stoic-father	Thor, God of Thunder	thor-god-of-thunder.jpg	2026-08-16
+atreus-impulsive-son-kratos-stoic-father	Thor Odinson	thor-odinson.jpg	2026-08-16
+atreus-impulsive-son-kratos-stoic-father	Mjölnir, Hammer of Thor	mjölnir-hammer-of-thor.jpg	2026-08-16
+anje-falkenrath	Misty Knight, Hero for Hire	misty-knight-hero-for-hire.jpg	2026-08-16
+anje-falkenrath	Hawkeye's Bow	hawkeyes-bow.jpg	2026-08-16
+anje-falkenrath	Spider-Man, New Champion	spider-man-new-champion.jpg	2026-08-16
+anje-falkenrath	Living Laser	living-laser.jpg	2026-08-16
+anje-falkenrath	Dark Fortress	dark-fortress.jpg	2026-08-16

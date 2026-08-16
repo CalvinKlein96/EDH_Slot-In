@@ -33,6 +33,7 @@ Dependencies
 import argparse
 import datetime as _dt
 import html
+import re
 import sys
 import time
 import webbrowser
@@ -55,6 +56,9 @@ REPORT_DIR = Path("reports")
 DEFAULT_COMMANDER_FILE = Path("commanders.txt")
 COMMANDER_INDEX_FILE = Path("commander_index.txt")   # cached autocomplete list
 LAST_CHECK_FILE = Path("last_check.txt")             # ISO date of the last completed check
+DISMISSED_FILE = Path("dismissed.txt")               # commander_slug -> ISO date NEW badges cleared through
+CARD_META_FILE = Path("card_meta.txt")               # card_slug -> cached USD/EUR price + purchase links
+THEME_MODE_FILE = Path("theme_mode.txt")             # "light" or "dark"
 
 SCRYFALL_NAMED = "https://api.scryfall.com/cards/named"
 SCRYFALL_SEARCH = "https://api.scryfall.com/cards/search"
@@ -73,9 +77,19 @@ COMMANDER_DELAY = 1.0       # seconds between commanders (be polite to EDHREC)
 # Helpers
 # --------------------------------------------------------------------------- #
  
+def partner_names(commander: str) -> list[str]:
+    """Split a "Card A // Card B" partner-pair commander into its individual
+    card names (each a real, separately-lookupable Scryfall card). Returns a
+    single-item list for an ordinary, non-partner commander."""
+    return [p.strip() for p in re.split(r"\s*//\s*", commander) if p.strip()]
+
+
 def slugify(name: str) -> str:
-    """Mirror EDHREC's card-name slug: lowercase, spaces->'-', drop ',' and '."""
-    s = name.strip().lower()
+    """Mirror EDHREC's card-name slug: lowercase, spaces->'-', drop ',' and '.
+    A "Card A // Card B" partner pair collapses to EDHREC's real URL
+    convention for these: both names concatenated with no separator marker
+    (verified directly against the live EDHREC API)."""
+    s = " ".join(partner_names(name)).lower()
     s = s.replace(" ", "-")
     s = s.replace("'", "")
     s = s.replace(",", "")
@@ -198,16 +212,114 @@ def save_last_check(date_str: str) -> None:
     LAST_CHECK_FILE.write_text(date_str, encoding="utf-8")
 
 
+def load_dismissed() -> dict[str, str]:
+    """Map commander_slug -> ISO date its NEW badges have been manually
+    cleared through (via "mark as seen"). Missing entries mean never dismissed."""
+    if not DISMISSED_FILE.exists():
+        return {}
+    out = {}
+    for line in DISMISSED_FILE.read_text(encoding="utf-8").splitlines():
+        if "\t" not in line:
+            continue
+        slug, d = line.split("\t", 1)
+        out[slug] = d
+    return out
+
+
+def save_dismissed(dismissed: dict[str, str]) -> None:
+    body = "\n".join(f"{slug}\t{d}" for slug, d in sorted(dismissed.items()))
+    DISMISSED_FILE.write_text(body + ("\n" if body else ""), encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Card price cache (shown on tiles; also drives Scryfall requests in
+# _record_cards, so both the CLI and the app benefit from one shared cache)
+# --------------------------------------------------------------------------- #
+
+CARD_META_FIELDS = ("usd", "eur", "tcgplayer", "cardmarket")
+
+
+def load_card_meta() -> dict[str, dict[str, str | None]]:
+    """card_slug -> {"usd": price, "eur": price, "tcgplayer": purchase url,
+    "cardmarket": purchase url} — any of the four may be None."""
+    if not CARD_META_FILE.exists():
+        return {}
+    out = {}
+    for line in CARD_META_FILE.read_text(encoding="utf-8").splitlines():
+        parts = line.split("\t")
+        if not parts or not parts[0]:
+            continue
+        slug, rest = parts[0], parts[1:]
+        rest += [""] * (len(CARD_META_FIELDS) - len(rest))
+        out[slug] = dict(zip(CARD_META_FIELDS, (v or None for v in rest)))
+    return out
+
+
+def save_card_meta(meta: dict[str, dict[str, str | None]]) -> None:
+    lines = [
+        "\t".join([slug, *(m.get(f) or "" for f in CARD_META_FIELDS)])
+        for slug, m in sorted(meta.items())
+    ]
+    body = "\n".join(lines)
+    CARD_META_FILE.write_text(body + ("\n" if body else ""), encoding="utf-8")
+
+
+def load_theme_mode() -> str:
+    """"light" or "dark". Defaults to "light"."""
+    if THEME_MODE_FILE.exists():
+        mode = THEME_MODE_FILE.read_text(encoding="utf-8").strip()
+        if mode in ("light", "dark"):
+            return mode
+    return "light"
+
+
+def save_theme_mode(mode: str) -> None:
+    THEME_MODE_FILE.write_text(mode, encoding="utf-8")
+
+
+def fetch_card_prices(card_name: str, session: requests.Session) -> dict[str, str | None] | None:
+    """Look up a card's USD and EUR prices, plus its TCGplayer and Cardmarket
+    purchase links, on Scryfall — one request covers both currencies and
+    both marketplaces. Any field in the returned dict may be None (no
+    listing for this printing). Returns None (distinct from a dict of all
+    Nones) if the *request itself* failed — rate-limited, timed out, or
+    Scryfall didn't recognize the name — so callers can tell "confirmed no
+    price" apart from "couldn't check" and retry the latter instead of
+    caching it as a permanent dead end."""
+    try:
+        for attempt in range(5):
+            resp = session.get(SCRYFALL_NAMED, params={"exact": card_name},
+                               headers=SCRYFALL_HEADERS, timeout=30)
+            if resp.status_code != 429:              # rate-limited: back off, retry
+                break
+            time.sleep(5.0 * (attempt + 1))
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        prices = data.get("prices") or {}
+        links = data.get("purchase_uris") or {}
+        return {
+            "usd": prices.get("usd"), "eur": prices.get("eur"),
+            "tcgplayer": links.get("tcgplayer"), "cardmarket": links.get("cardmarket"),
+        }
+    except requests.RequestException:
+        return None
+    finally:
+        time.sleep(SCRYFALL_SEARCH_DELAY)
+
+
 # --------------------------------------------------------------------------- #
 # EDHREC / Scryfall access
 # --------------------------------------------------------------------------- #
  
 def extract_new_card_names(edhrec: EDHRec, commander: str) -> list[str]:
     """Return the card names in the commander's EDHREC 'New Cards' section.
- 
+
     get_new_cards() returns {header: [cardview, ...]} or {} if absent.
     """
-    result = edhrec.get_new_cards(commander)
+    # pyedhrec does its own lower/dash/strip(",'") formatting but doesn't know
+    # about our "Card A // Card B" partner-pair syntax, so normalize it first.
+    result = edhrec.get_new_cards(" ".join(partner_names(commander)))
     if not result:
         return []
     cardviews = next(iter(result.values()), []) or []
@@ -371,8 +483,11 @@ def cmd_check(args) -> None:
  
 def _record_cards(cslug: str, names: list[str], session: requests.Session,
                   no_images: bool) -> list[dict]:
-    """Build DB entries for a list of card names, downloading images as needed."""
+    """Build DB entries for a list of card names, downloading images and
+    caching USD/EUR price + purchase-link data as needed."""
     entries = []
+    meta = load_card_meta()
+    meta_dirty = False
     for name in names:
         card_slug = slugify(name)
         image_file = f"{card_slug}.jpg"
@@ -383,8 +498,19 @@ def _record_cards(cslug: str, names: list[str], session: requests.Session,
             ok = download_image(name, dest, session)
             if not ok:
                 image_file = ""
+        if card_slug not in meta:
+            # Cache even a confirmed-empty result (a card genuinely absent
+            # from one marketplace shouldn't be re-queried every check), but
+            # NOT a failed request (rate-limited/timed out) — that must be
+            # retried, not mistaken for "checked, nothing there".
+            prices = fetch_card_prices(name, session)
+            if prices is not None:
+                meta[card_slug] = prices
+                meta_dirty = True
         entries.append({"commander": cslug, "card": name,
                         "image": image_file, "date": today()})
+    if meta_dirty:
+        save_card_meta(meta)
     return entries
  
  
